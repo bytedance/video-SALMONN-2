@@ -1,0 +1,29 @@
+# audio_path: /mnt/bn/tiktok-mm-2/aiic/users/tangchangli/test/baseball.wav
+# video_path: /mnt/bn/tiktok-mm-2/aiic/users/tangchangli/test/baseball.mp4
+
+# audio_path: /mnt/bn/tiktok-mm-2/aiic/users/tangchangli/test/whale.wav
+# video_path: /mnt/bn/tiktok-mm-2/aiic/users/tangchangli/test/whale.mp4
+
+# audio_path: /mnt/bn/tiktok-mm-2/aiic/users/tangchangli/test/titanic.wav
+# video_path: /mnt/bn/tiktok-mm-2/aiic/users/tangchangli/test/titanic.mp4
+
+# audio_path: /mnt/bn/tiktok-mm-4/aiic/public/data/demo/audio/frozen.wav
+# video_path: /mnt/bn/tiktok-mm-4/aiic/public/data/demo/video/frozen.mp4
+
+# Media files from test_media directory (relative to current directory)
+audio_path: /opt/txt2img/txt2img/captioner/video-SALMONN-2/scripts/inference/test_media/file_example_MP4_1280_10MG.wav  # Audio extracted from MP4
+video_path: /opt/txt2img/txt2img/captioner/video-SALMONN-2/scripts/inference/test_media/file_example_MP4_1280_10MG.mp4  # Your MP4 file
+
+# audio_path: /mnt/bn/tiktok-mm-2/aiic/users/tangchangli/test/zootopia2.wav
+# video_path: /mnt/bn/tiktok-mm-2/aiic/users/tangchangli/test/zootopia2.mp4
+
+# question: Give a detailed account of everything in the video, capturing all the specifics. While doing so, also include as much information from the audio as possible, ensuring that the descriptions of audio and video are well-synchronized.
+question: What is the video mainly about?
+
+max_time: 110 # 120 # 
+fps: 1
+max_new_tokens: 2048 # 
+do_sample: False # True # 
+top_p: 0.9
+seed: 2023
+prefix: ""

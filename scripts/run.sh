@@ -22,7 +22,7 @@ PROJECT_ROOT=$(cd $(dirname $0); pwd)
 cd $PROJECT_ROOT
 cd ..
 
-pip install -r requirements.txt
+# pip install -r requirements.txt
 
 TRAINING_DATA=/mnt/bn/tiktok-mm-4/aiic/users/tangchangli/preprocess_dataset/ytb0-62kCapHumanDimQa.json
 MODEL_ID=/mnt/bn/tiktok-mm-4/aiic/public/model/OV-Qwen2-7B-AM9
@@ -110,6 +110,16 @@ TEST_OUTPUT_DIR=output/test/$TEST_ID
 MODEL=$MODEL_ID
 echo "BASE CKPT: $MODEL"
 
+# For demo/inference mode, ensure we use the HuggingFace model instead of local checkpoints
+if [[ "$DO_DEMO" = "True" ]]; then
+    echo "🔄 Demo mode detected - using HuggingFace model instead of local checkpoint"
+    MODEL=$MODEL_BASE
+    echo "🐞 Debug: Updated MODEL to $MODEL for demo mode"
+    # Disable test data loading in demo mode
+    TEST_DATA_PATH=""
+    echo "🐞 Debug: Disabled TEST_DATA_PATH for demo mode"
+fi
+
 MODEL_MAX_LENGTH=32768
 VISION_ENCODER=google/siglip-so400m-patch14-384
 
@@ -196,7 +206,7 @@ torchrun --nproc_per_node=$GPU_NUM --nnodes="${ARNOLD_WORKER_NUM}" --node_rank="
         --merge_and_new_lora $MERGE_AND_NEW_LORA \
         --do_demo $DO_DEMO \
         --do_test $DO_TEST \
-        --test_data_path $TEST_DATA_PATH \
+        --test_data_path "$TEST_DATA_PATH" \
         --test_output_dir $TEST_OUTPUT_DIR \
         --dpo_train $DPO_TRAIN \
         --ce_loss_weight $CE_LOSS_WEIGHT \

@@ -185,7 +185,7 @@ def train():
             training_args.ckpt,
             config=cfg_pretrained,
             cache_dir=training_args.cache_dir,
-            attn_implementation="flash_attention_2",
+            attn_implementation="eager",
             torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
             **audio_config
         )
@@ -438,105 +438,110 @@ def train():
             from transformers import set_seed
             test_dataset = data_module["eval_dataset"]
             data_collator = data_module["data_collator"]
-            while True:
-                try:
-                    yaml_file = input("yaml file: ")
-                    with open(yaml_file, 'r') as file:
-                        yaml_data = yaml.safe_load(file)
-                    if model_args.audio_visual:
-                        audio_path = yaml_data.get('audio_path', None)
-                    text_only = yaml_data.get("text_only", False)
-                    if text_only:
-                        video_path = ""
-                    else:
-                        video_path = yaml_data['video_path']
-                    if not text_only:
-                        assert os.path.exists(video_path)
+            # while True:
+            #     try:
+            # Hardcoded YAML file path for demo mode
+            # yaml_file = input("yaml file: ")
+            yaml_file = "/opt/txt2img/txt2img/captioner/SALMONN/scripts/inference/my_inference.yaml"
+            print(f"yaml file: {yaml_file}")
+            with open(yaml_file, 'r') as file:
+                yaml_data = yaml.safe_load(file)
+            if model_args.audio_visual:
+                audio_path = yaml_data.get('audio_path', None)
+            text_only = yaml_data.get("text_only", False)
+            if text_only:
+                video_path = ""
+            else:
+                video_path = yaml_data['video_path']
+            if not text_only:
+                assert os.path.exists(video_path)
 
-                    qs = yaml_data['question']
-                    max_time = yaml_data.get("max_time", 30)
-                    fps = yaml_data.get("fps", 1)
-                    max_new_tokens = yaml_data.get("max_new_tokens", 1024)
-                    do_sample = yaml_data.get("do_sample", False)
-                    top_p = yaml_data.get("top_p", 0.9)
-                    seed = yaml_data.get("seed", 2024)
-                    prefix = yaml_data.get("prefix", "")
+            qs = yaml_data['question']
+            max_time = yaml_data.get("max_time", 30)
+            fps = yaml_data.get("fps", 1)
+            max_new_tokens = yaml_data.get("max_new_tokens", 1024)
+            do_sample = yaml_data.get("do_sample", False)
+            top_p = yaml_data.get("top_p", 0.9)
+            seed = yaml_data.get("seed", 2024)
+            prefix = yaml_data.get("prefix", "")
+            
+            # import pdb; pdb.set_trace()
 
-                    test_dataset.max_time = max_time
-                    test_dataset.data_args.video_fps = fps
-                    test_dataset.max_frame_num = round(test_dataset.max_time * test_dataset.data_args.video_fps)
+            test_dataset.max_time = max_time
+            test_dataset.data_args.video_fps = fps
+            test_dataset.max_frame_num = round(test_dataset.max_time * test_dataset.data_args.video_fps)
 
-                    test_dataset.list_data_dict = [{}]
-                    if not text_only:
-                        if video_path != "":
-                            test_dataset.list_data_dict[0]["video"] = video_path
+            test_dataset.list_data_dict = [{}]
+            if not text_only:
+                if video_path != "":
+                    test_dataset.list_data_dict[0]["video"] = video_path
 
-                        if model_args.audio_visual and not text_only:
-                            test_dataset.list_data_dict[0]["audio"] = audio_path
+                if model_args.audio_visual and not text_only:
+                    test_dataset.list_data_dict[0]["audio"] = audio_path
 
-                        test_dataset.list_data_dict[0]["conversations"] = [
-                            {
-                                "from": "human",
-                                "value": "<image>\n" + qs.strip(),
-                            },
-                            {
-                                "from": "gpt",
-                                "value": "",
-                                "prefix": prefix,
-                            }
-                        ]
-                    else:
-                        test_dataset.list_data_dict[0]["conversations"] = [
-                            {
-                                "from": "human",
-                                "value": qs.strip(),
-                                "prefix": prefix,
-                            },
-                            {
-                                "from": "gpt",
-                                "value": ""
-                            }
-                        ]
-                    item = test_dataset._get_item(0)
+                test_dataset.list_data_dict[0]["conversations"] = [
+                    {
+                        "from": "human",
+                        "value": "<image>\n" + qs.strip(),
+                    },
+                    {
+                        "from": "gpt",
+                        "value": "",
+                        "prefix": prefix,
+                    }
+                ]
+            else:
+                test_dataset.list_data_dict[0]["conversations"] = [
+                    {
+                        "from": "human",
+                        "value": qs.strip(),
+                        "prefix": prefix,
+                    },
+                    {
+                        "from": "gpt",
+                        "value": ""
+                    }
+                ]
+            item = test_dataset._get_item(0)
 
-                    batch = data_collator([item])
-                    batch["input_ids"] = batch["input_ids"].cuda()
-                    batch["labels"] = batch["labels"].cuda()
-                    batch["attention_mask"] = batch["attention_mask"].cuda()
-                    if not text_only:
-                        batch["images"] = [it.to(torch.bfloat16).cuda() for it in batch["images"]]
-                        batch["spectrogram"] = batch["spectrogram"].to(torch.bfloat16).cuda()
+            batch = data_collator([item])
+            batch["input_ids"] = batch["input_ids"].cuda()
+            batch["labels"] = batch["labels"].cuda()
+            batch["attention_mask"] = batch["attention_mask"].cuda()
+            if not text_only:
+                batch["images"] = [it.to(torch.bfloat16).cuda() for it in batch["images"]]
+                batch["spectrogram"] = batch["spectrogram"].to(torch.bfloat16).cuda()
 
-                    batch.pop("ids")
-                    batch.pop("prompts")
-                    batch.pop("ce_only")
-                    batch.pop("texts")
+            batch.pop("ids")
+            batch.pop("prompts")
+            batch.pop("ce_only")
+            batch.pop("texts")
 
-                    conv = conv_templates['qwen_1_5'].copy()
-                    stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
-                    keywords = [stop_str]
-                    stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, batch["input_ids"])
+            conv = conv_templates['qwen_1_5'].copy()
+            stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
+            keywords = [stop_str]
+            stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, batch["input_ids"])
 
-                    set_seed(seed)
-                    _ = batch.pop("ori_item", None)
-                    result = model.generate(
-                        do_sample=do_sample,
-                        num_beams=1,
-                        stopping_criteria=[stopping_criteria],
-                        max_new_tokens=max_new_tokens,
-                        top_p=top_p,
-                        **batch
-                    )
-                    res_ids = result.tolist()
-                    res_text = [tokenizer.decode(it) for it in res_ids]
-                    print("======================")
-                    print(res_text[0])
-                    print("======================")                        
+            set_seed(seed)
+            _ = batch.pop("ori_item", None)
+            result = model.generate(
+                do_sample=do_sample,
+                num_beams=1,
+                stopping_criteria=[stopping_criteria],
+                max_new_tokens=max_new_tokens,
+                top_p=top_p,
+                **batch
+            )
+            res_ids = result.tolist()
+            res_text = [tokenizer.decode(it) for it in res_ids]
+            print("======================")
+            print(res_text[0])
+            print("======================")                        
 
-                except Exception as e:
-                    # raise e
-                    print(e, e.__traceback__.tb_lineno)
-                    breakpoint()
+                # except Exception as e:
+                #     # raise e
+                #     print(e, e.__traceback__.tb_lineno)
+                #     # breakpoint()  # Disabled for demo mode
 
         else:
             test_output_dir = training_args.test_output_dir

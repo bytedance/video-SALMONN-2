@@ -36,7 +36,11 @@ class LazyAVSupervisedDataset(Dataset):
     def __init__(self, data_path: str, tokenizer: transformers.PreTrainedTokenizer, data_args, is_test=False):
         super(LazyAVSupervisedDataset, self).__init__()
 
-        list_data_dict = json.load(open(data_path, "r"))
+        # Handle empty data_path for demo mode
+        if not data_path or data_path.strip() == "":
+            list_data_dict = []
+        else:
+            list_data_dict = json.load(open(data_path, "r"))
     
         print("Formatting inputs...Skip in lazy mode. Audio visual dataset")
         self.tokenizer = tokenizer

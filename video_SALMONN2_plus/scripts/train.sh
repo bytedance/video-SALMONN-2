@@ -1,6 +1,7 @@
 cd "$(cd $(dirname $0); pwd)/.."
 
-DATASET=preprocess_dataset/vAnnt_merge.json
+DATASET=""
+USE_ITERATOR=True
 MODEL=Qwen2.5-VL-7B-Instruct
 MODEL_BASE=Qwen2.5-VL-7B-Instruct
 LR=2e-5
@@ -28,6 +29,7 @@ LORA_CKPT=No
 TRAIN_TYPE=sft
 NUM_WORKER=8
 NO_AUDIO=False
+NUM_TRAIN_SAMPLES=10000
 
 mkdir -p output
 mkdir -p dataset
@@ -62,16 +64,16 @@ while [[ "$#" -gt 0 ]]; do
         --train_type) TRAIN_TYPE="$2"; shift ;;
         --num_worker) NUM_WORKER="$2"; shift ;;
         --no_audio) NO_AUDIO=True ;;
+        --num_train_samples) NUM_TRAIN_SAMPLES="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
-torchrun --nproc_per_node=${ARNOLD_WORKER_GPU} --nnodes="${ARNOLD_WORKER_NUM}" --node_rank="${ARNOLD_ID}" --master_addr="${METIS_WORKER_0_HOST}" --master_port=12396 \
+python \
     qwenvl/train/train_qwen.py \
         --deepspeed scripts/zero${DEEPSPEED}.json \
         --model_name_or_path "$MODEL" \
-        --dataset_use $DATASET \
         --tune_mm_vision $TRAIN_ENC \
         --tune_mm_mlp $TRAIN_PROJ \
         --tune_mm_llm $TRAIN_LLM \
@@ -111,4 +113,6 @@ torchrun --nproc_per_node=${ARNOLD_WORKER_GPU} --nnodes="${ARNOLD_WORKER_NUM}" -
         --train_type $TRAIN_TYPE \
         --tune_mm_audio $TRAIN_AUDIO \
         --tune_mm_qformer $TRAIN_QFORMER \
-        --no_audio $NO_AUDIO 
+        --no_audio $NO_AUDIO \
+        --use_iterator $USE_ITERATOR \
+        --num_train_samples $NUM_TRAIN_SAMPLES 

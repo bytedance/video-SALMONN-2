@@ -39,6 +39,7 @@ import transformers
 
 from .rope2d import get_rope_index_25, get_rope_index_2
 from decord import VideoReader, cpu
+from .data_iterator import make_qwen_lazy_iterator
 
 IGNORE_INDEX = -100
 IMAGE_TOKEN_INDEX = 151655
@@ -256,9 +257,13 @@ class LazySupervisedDataset(Dataset):
     def __init__(self, tokenizer: transformers.PreTrainedTokenizer, data_args):
         super(LazySupervisedDataset, self).__init__()
 
-        dataset = data_args.dataset_use.split(",")
-        dataset_list = dataset
-        rank0_print(f"Loading datasets: {dataset_list}")
+        if data_args.use_iterator:
+            dataset_list = []
+            rank0_print("Using iterator for data loading")
+        else:
+            dataset = data_args.dataset_use.split(",")
+            dataset_list = dataset
+            rank0_print(f"Loading datasets: {dataset_list}")
         self.video_max_total_pixels = getattr(
             data_args, "video_max_total_pixels", 1664 * 28 * 28
         )
@@ -273,27 +278,29 @@ class LazySupervisedDataset(Dataset):
 
         list_data_dict = []
 
-        for data in dataset_list:
-            file_format = data.split(".")[-1]
-            if file_format == "jsonl":
-                annotations = read_jsonl(data)
-            else:
-                annotations = json.load(open(data, "r"))
-            list_data_dict += annotations
+        if not data_args.use_iterator:
+            for data in dataset_list:
+                file_format = data.split(".")[-1]
+                if file_format == "jsonl":
+                    annotations = read_jsonl(data)
+                else:
+                    annotations = json.load(open(data, "r"))
+                list_data_dict += annotations
 
-        for d in list_data_dict:
-            if "<image>" in d["conversations"][0]["value"] and not "image" in d and "video" in d:
-                d["conversations"][0]["value"] = d["conversations"][0]["value"].replace(
-                    "<image>", "<video>"
-                )
-            if "<image>" in d["conversations"][0]["value"] and not "image" in d and not "video" in d and "audio" in d:
-                d["conversations"][0]["value"] = d["conversations"][0]["value"].replace(
-                    "<image>", "<audio>"
-                )
+            for d in list_data_dict:
+                if "<image>" in d["conversations"][0]["value"] and not "image" in d and "video" in d:
+                    d["conversations"][0]["value"] = d["conversations"][0]["value"].replace(
+                        "<image>", "<video>"
+                    )
+                if "<image>" in d["conversations"][0]["value"] and not "image" in d and not "video" in d and "audio" in d:
+                    d["conversations"][0]["value"] = d["conversations"][0]["value"].replace(
+                        "<image>", "<audio>"
+                    )
 
-        rank0_print(f"Total training samples: {len(list_data_dict)}")
-
-        random.shuffle(list_data_dict)  # Randomly shuffle the data for training
+            rank0_print(f"Total training samples: {len(list_data_dict)}")
+            random.shuffle(list_data_dict)  # Randomly shuffle the data for training
+        else:
+            rank0_print("Using iterator - skipping dataset file loading")
 
         rank0_print("Formatting inputs...Skip in lazy mode")
         self.tokenizer = tokenizer
@@ -303,9 +310,10 @@ class LazySupervisedDataset(Dataset):
         self.data_args.image_processor.min_pixels = data_args.min_pixels
         self.data_args.image_processor.size["longest_edge"] = data_args.max_pixels
         self.data_args.image_processor.size["shortest_edge"] = data_args.min_pixels
+        self.iterator = make_qwen_lazy_iterator(batch_size=1, debug_mode=True) if data_args.use_iterator else None
 
     def __len__(self):
-        return len(self.list_data_dict)
+        return self.data_args.num_train_samples if self.iterator else len(self.list_data_dict)
 
     @property
     def lengths(self):
@@ -485,11 +493,13 @@ class LazySupervisedDataset(Dataset):
 
     def _get_item(self, i) -> Dict[str, torch.Tensor]:
         try:
-            sources = self.list_data_dict[i]
-            if isinstance(i, int):
-                sources = [sources]
-            assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
+            if self.iterator:
+                sources = next(self.iterator)
+            else:
+                sources = self.list_data_dict[i]
 
+            source = sources[0] if isinstance(sources, List) else sources
+            
             # define some variables
             grid_thw_merged = None
             video_grid_thw_merged = None
@@ -499,8 +509,8 @@ class LazySupervisedDataset(Dataset):
             audio = None
             audio_lengths = None
 
-            if "image" in sources[0]:
-                image_file = self.list_data_dict[i]["image"]
+            if "image" in source:
+                image_file = source["image"]
                 if isinstance(image_file, List):
                     if len(image_file) > 1:
                         image_file = [
@@ -523,8 +533,8 @@ class LazySupervisedDataset(Dataset):
                     merged_thw.prod() // self.data_args.image_processor.merge_size**2
                     for merged_thw in grid_thw_merged
                 ]
-            if "video" in sources[0]:
-                video_file = sources[0]["video"]
+            if "video" in source:
+                video_file = source["video"]
                 if isinstance(video_file, List):
                     if len(video_file) > 1:
                         video_file = [
@@ -543,7 +553,7 @@ class LazySupervisedDataset(Dataset):
                         video_file
                     )
                     video = [video]
-                if "use_audio" in sources[0] and sources[0]["use_audio"]:
+                if "use_audio" in source and source["use_audio"]:
                     audio, audio_lengths = self.process_audio(
                         video_file
                     )
@@ -557,12 +567,12 @@ class LazySupervisedDataset(Dataset):
                 #     merged_thw.prod() // self.data_args.image_processor.merge_size**2
                 #     for merged_thw in video_grid_thw_merged
                 # ]
-            if "audio" in sources[0]:
-                audio_file = sources[0]["audio"]
+            if "audio" in source:
+                audio_file = source["audio"]
                 audio, audio_lengths = self.process_audio(
                     audio_file
                 )
-            chat_sources = copy.deepcopy([e["conversations"] for e in sources])
+            chat_sources = copy.deepcopy([source["conversations"]])
             data_dict = preprocess_qwen_2_visual(
                 chat_sources,
                 self.tokenizer,
@@ -607,9 +617,9 @@ class LazySupervisedDataset(Dataset):
                 )
             else:
                 reject_position_ids = None
-            if "image" not in sources[0] and "video" not in sources[0] and "audio" not in sources[0]:
+            if "image" not in source and "video" not in source and "audio" not in source:
                 grid_thw_merged = None
-                sources = copy.deepcopy([e["conversations"] for e in sources])
+                sources = copy.deepcopy([source["conversations"]])
                 data_dict = preprocess_qwen_2_visual(
                     sources, self.tokenizer, None, None
                 )
@@ -633,13 +643,13 @@ class LazySupervisedDataset(Dataset):
                     data_dict["reject_ids"][0].size(0)
                 ]
 
-            if "image" in self.list_data_dict[i]:
+            if "image" in source:
                 data_dict["pixel_values"] = torch.cat(image, dim=0)
                 data_dict["image_grid_thw"] = torch.cat(
                     [thw.unsqueeze(0) for thw in grid_thw], dim=0
                 )
             # video exist in the data
-            elif "video" in self.list_data_dict[i]:
+            elif "video" in source:
                 data_dict["pixel_values_videos"] = torch.cat(video, dim=0)
                 data_dict["video_grid_thw"] = torch.cat(
                     [thw.unsqueeze(0) for thw in video_grid_thw], dim=0
@@ -660,14 +670,14 @@ class LazySupervisedDataset(Dataset):
                 data_dict["position_ids"] = data_dict["position_ids"][:, :, :len_input]
                 data_dict["attention_mask"] = torch.ones_like(data_dict["input_ids"])
 
-                data_dict["video"] = sources[0].get("video", None)
-                data_dict["image"] = sources[0].get("image", None)
-                data_dict["audio"] = sources[0].get("audio", None)
-                data_dict["use_audio"] = sources[0].get("use_audio", False)
+                data_dict["video"] = source.get("video", None)
+                data_dict["image"] = source.get("image", None)
+                data_dict["audio"] = source.get("audio", None)
+                data_dict["use_audio"] = source.get("use_audio", False)
 
-                data_dict["prompt"] = sources[0]["conversations"][0]
-                data_dict["ref"] = sources[0]["conversations"][1]["value"]
-                data_dict["should_use"] = sources[0].get("should_use", True)
+                data_dict["prompt"] = source["conversations"][0]
+                data_dict["ref"] = source["conversations"][1]["value"]
+                data_dict["should_use"] = source.get("should_use", True)
                 data_dict.pop("chosen_ids", None)
                 data_dict.pop("reject_ids", None)
                 data_dict.pop("chosen_position_ids", None)

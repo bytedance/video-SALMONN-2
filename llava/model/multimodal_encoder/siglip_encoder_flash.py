@@ -51,7 +51,7 @@ from transformers.utils import (
     logging,
 )
 
-if is_flash_attn_2_available():
+if is_flash_attn_2_available():    
     import inspect
 
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -534,7 +534,7 @@ class SigLipEncoderLayer(nn.Module):
         super().__init__()
         self.embed_dim = config.hidden_size
         # set default to flash attention (set "eager" to disable flash attention)
-        config._attn_implementation = "eager"
+        config._attn_implementation = "flash_attention_2"
         self.self_attn = SIGLIP_ATTENTION_CLASSES[config._attn_implementation](config=config)
         self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
         self.mlp = SigLipMLP(config)

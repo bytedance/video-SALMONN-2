@@ -15,8 +15,27 @@
 # Adopted from https://github.com/QwenLM/Qwen2.5-VL. The original license is located at 'third-party-license/qwenvl.txt'.
 # Adopted from https://github.com/huggingface/transformers. The original license is located at 'third-party-license/transformers.txt'.
 
+import copy
 import os
-from typing import Dict, List, Optional, Sequence
+import sys
+
+import tqdm
+import wandb
+import logging
+import tempfile
+import shutil
+import traceback
+from pathlib import Path
+from transformers import TrainerCallback
+from transformers.utils import logging as transformers_logging
+
+# Add parent directory to path for llava imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../'))
+from llava import conversation as conversation_lib
+from llava.mm_utils import KeywordsStoppingCriteria
+from qwenvl.data.dataset import LazySupervisedDataset, make_supervised_data_module
+
+logger = transformers_logging.get_logger(__name__)
 # from contextlib import contextmanager, nullcontext
 
 from transformers.models.auto.modeling_auto import (
@@ -53,6 +72,7 @@ from transformers.trainer_callback import (
 
 import re
 from liger_kernel.chunked_loss.dpo_loss import LigerFusedLinearDPOLoss
+from qwenvl.data.image_processing_qwen2_vl_fast import Qwen2VLImageProcessorFast
 
 def _is_peft_model(model):
     # if is_peft_available():
@@ -65,6 +85,94 @@ def _is_peft_model(model):
     #     return isinstance(model, classes_to_check)
     return False
 
+# class DebugInferenceCallback(TrainerCallback):
+#     """Callback to log debug inference to wandb"""
+    
+#     def __init__(self, model, tokenizer, data_args):
+#         self.debug_log = os.environ.get("DEBUG_LOG_INPUTS_OUTPUTS", "0") == "1"
+#         self.debug_frequency = int(os.environ.get("DEBUG_LOG_FREQUENCY", "50"))
+#         self.debug_max_tokens = int(os.environ.get("DEBUG_MAX_NEW_TOKENS", "256"))
+#         self.current_inputs = None
+#         self.model = model
+#         self.tokenizer = tokenizer
+#         self.data_args = copy.deepcopy(data_args)
+#         self.data_args.run_test = True
+#         self.dataset = LazySupervisedDataset(tokenizer=self.tokenizer, data_args=self.data_args)
+#         self.iterator = iter(DataLoader(
+#             self.dataset,
+#             batch_size=1,
+#             shuffle=False,
+#             num_workers=0,
+#             collate_fn=lambda batch: batch[0],
+#             in_order=False
+#         ))
+
+#     def on_step_end(self, args, state, control, **kwargs):    
+#         logger.info(f"on_step_end called at step {state.global_step}")
+
+#         if not self.debug_log or state.global_step % self.debug_frequency != 1:
+#             logger.info(f"Skipping debug logging: debug_log={self.debug_log}, step={state.global_step}, frequency={self.debug_frequency}")
+#             return
+        
+#         if self.current_inputs is None:
+#             logger.info("No current_inputs available")
+#             return
+
+#         logger.info(f"Current inputs keys: {list(self.current_inputs.keys())}")
+#         for k, v in self.current_inputs.items():
+#             if v is None:
+#                 logger.info(f"  {k}: None")
+#             elif hasattr(v, 'shape'):
+#                 logger.info(f"  {k}: shape {v.shape}, type {type(v)}")
+#             else:
+#                 logger.info(f"  {k}: type {type(v)}, value preview: {str(v)[:100]}")
+                
+#         logger.info("Starting debug inference...")
+#         try:
+#             log_data = {}
+#             inputs = next(self.iterator)
+
+#             res = {
+#                 "video": inputs.pop("video", None),
+#                 "image": inputs.pop("image", None),
+#                 "prompt": inputs.pop("prompt", None),
+#                 "ref": inputs.pop("ref", None),
+#                 "audio": inputs.pop("audio", None),
+#                 "use_audio": inputs.pop("use_audio", False),
+#                 "should_use": inputs.pop("should_use", True),
+#             }
+            
+#             inputs = {k: v.to(f"cuda:{torch.cuda.current_device()}") for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+#             with torch.inference_mode():
+#                 self.model.eval()
+
+#                 print(self.model.training)
+
+#                 outputs = self.model.generate(
+#                     **inputs,
+#                     max_new_tokens=1024,
+#                     do_sample=True,
+#                     top_p=0.9)
+
+#                 self.model.train()
+                
+#             output_trimmed = outputs[0, len(inputs["input_ids"][0]):]
+#             output_text = self.tokenizer.decode(output_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+#             res["pred"] = output_text # only one example for now
+
+#             for video, pred, ref in zip(res["video"], [res["pred"]], [res["ref"]]):
+#                 video.seek(0)
+#                 log_data["debug_input_video"] = wandb.Video(video, format="mp4")
+#                 log_data["debug_model_response"] = wandb.Html(f"<pre>{pred}</pre>")
+#                 log_data["debug_reference"] = wandb.Html(f"<pre>{ref}</pre>")
+                
+#                 wandb.log(log_data, step=state.global_step, commit=True)
+
+#         except Exception as e:
+#             logger.error(f"Debug inference failed: {str(e)}")
+#             logger.error(f"Full traceback: {traceback.format_exc()}")
+#             logger.error(f"Available keys in current_inputs: {list(self.current_inputs.keys()) if self.current_inputs else 'None'}")
+
 class QwenVLTrainer(Trainer):
 
     def __init__(
@@ -72,8 +180,13 @@ class QwenVLTrainer(Trainer):
         *args,
         **kwargs
     ):
+        # Store data_args before calling super
         super().__init__(*args, **kwargs)
         self.dpo_loss_fct = LigerFusedLinearDPOLoss()
+        
+        # Add debug callback
+        # self.debug_callback = DebugInferenceCallback(self.model, self.processing_class, self.data_args)
+        # self.add_callback(self.debug_callback)
 
     
     def create_optimizer(self):
@@ -268,7 +381,6 @@ class QwenVLTrainer(Trainer):
 
         Subclass and override for custom behavior.
         """
-        
         if self.model_accepts_loss_kwargs:
             loss_kwargs = {}
             if num_items_in_batch is not None:

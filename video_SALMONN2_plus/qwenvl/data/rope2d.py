@@ -192,8 +192,13 @@ def get_rope_index_25(
                 # llm_pos_ids_list.append(audio_pos)
                 audio_visual_pos = torch.zeros_like(torch.cat((video_pos, audio_pos), dim=1))
                 st = ed + llm_grid_t * llm_grid_h * llm_grid_w + audio_len
-                audio_visual_pos[:, input_ids[ed:st] == audio_token_id] = audio_pos
-                audio_visual_pos[:, input_ids[ed:st] == video_token_id] = video_pos
+                
+                # Debug logging
+                slice_tokens = input_ids[ed:st]
+                audio_mask = slice_tokens == audio_token_id
+                video_mask = slice_tokens == video_token_id                
+                audio_visual_pos[:, audio_mask] = audio_pos
+                audio_visual_pos[:, video_mask] = video_pos
                 llm_pos_ids_list.append(audio_visual_pos)
                 video_index += 1
                 remain_videos -= 1

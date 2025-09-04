@@ -40,6 +40,7 @@ class DataArguments:
     dataset_use: str = field(default="")
     use_iterator: bool = field(default=False)
     num_train_samples: int = field(default=10000)
+    temp_model_dir: str = field(default="output/models/merged_model/")
     video_max_frames: Optional[int] = field(default=8)
     video_min_frames: Optional[int] = field(default=4)
     base_interval: float = field(default=2)

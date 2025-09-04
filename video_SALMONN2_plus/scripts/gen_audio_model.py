@@ -3,8 +3,8 @@ from transformers import AutoTokenizer, AutoModelForSpeechSeq2Seq
 import torch
 import shutil
 
-path_in = "Qwen2.5-VL-72B-Instruct"
-path_to_save = "Qwen2.5-VL-72B-Instruct-Audio"
+path_in = "Qwen/Qwen2.5-VL-7B-Instruct"
+path_to_save = "/home/eporat/txt2img/txt2img/captioner/video-SALMONN-2/video_SALMONN2_plus/output/models/Qwen2.5-VL-7B-Instruct-Audio"
 
 tokenizer = AutoTokenizer.from_pretrained(
     path_in,

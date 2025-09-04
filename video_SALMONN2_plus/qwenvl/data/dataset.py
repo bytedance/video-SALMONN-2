@@ -310,7 +310,7 @@ class LazySupervisedDataset(Dataset):
         self.data_args.image_processor.min_pixels = data_args.min_pixels
         self.data_args.image_processor.size["longest_edge"] = data_args.max_pixels
         self.data_args.image_processor.size["shortest_edge"] = data_args.min_pixels
-        self.iterator = make_qwen_lazy_iterator(batch_size=1, debug_mode=True) if data_args.use_iterator else None
+        self.iterator = make_qwen_lazy_iterator(batch_size=1, debug_mode=False) if data_args.use_iterator else None
 
     def __len__(self):
         return self.data_args.num_train_samples if self.iterator else len(self.list_data_dict)
@@ -348,8 +348,17 @@ class LazySupervisedDataset(Dataset):
             print("No pre-calculated length available.")
             return np.array([1] * len(self.list_data_dict))
 
+    def save_debug_video(self, audio_file):
+        """Save problematic video file for debugging"""
+        debug_dir = "/home/eporat/txt2img/txt2img/captioner/video-SALMONN-2"
+        debug_path = f"{debug_dir}/debug_video_{os.getpid()}.mp4"
+        with open(debug_path, 'wb') as f:
+            audio_file.seek(0)
+            f.write(audio_file.getvalue())
+        print(f"Saved problematic video to: {debug_path}")
+
     def process_audio(self, audio_file):
-        try:
+        try:            
             audio_kwargs = {
                 "sampling_rate": 16000,
                 "padding": "max_length",
@@ -359,6 +368,7 @@ class LazySupervisedDataset(Dataset):
             if isinstance(audio_file, list):
                 audio_data = []
                 for file in audio_file:
+                    file.seek(0)
                     decoder = AudioDecoder(
                         file,
                         sample_rate=audio_kwargs["sampling_rate"],
@@ -367,6 +377,7 @@ class LazySupervisedDataset(Dataset):
                     audio = decoder.get_all_samples()
                     audio_data.append(audio.data.numpy().squeeze(0))
             else:
+                audio_file.seek(0)
                 decoder = AudioDecoder(
                     audio_file,
                     sample_rate=audio_kwargs["sampling_rate"],
@@ -385,8 +396,10 @@ class LazySupervisedDataset(Dataset):
                 audio_inputs.append(torch.stack(spectrogram_lst, dim=0))
                 audio_lengths.append(math.ceil(len(audio_data[idx]) / (30 * audio_kwargs["sampling_rate"])) * 60)
             return audio_inputs, audio_lengths
-        except:
-            return None, None
+        except Exception as e:
+            print(f"Audio processing failed: {e}")
+            self.save_debug_video(audio_file)
+            raise e
 
 
     def process_image_unified(self, image_file):
@@ -403,10 +416,12 @@ class LazySupervisedDataset(Dataset):
     def process_video(self, video_file):
         torchcodec_video = None
         try:
+            video_file.seek(0)
             torchcodec_video = self.video_torchcodec(video_file)
             return torchcodec_video
         except:
             try:
+                video_file.seek(0)
                 decord_video = self.read_video_decord(video_file)
                 return decord_video
             except Exception as e:
@@ -479,7 +494,6 @@ class LazySupervisedDataset(Dataset):
                 sample = self._get_item(i)
                 return sample
             except Exception as e:
-                # sleep 1s in case it is a cloud disk issue
                 print(f"[Try #{attempt_idx}] Failed to fetch sample {i}. Exception:", e)
                 time.sleep(1)
 
@@ -554,9 +568,13 @@ class LazySupervisedDataset(Dataset):
                     )
                     video = [video]
                 if "use_audio" in source and source["use_audio"]:
-                    audio, audio_lengths = self.process_audio(
-                        video_file
-                    )
+                    try:
+                        audio, audio_lengths = self.process_audio(
+                            video_file
+                        )
+                    except:
+                        print("Audio processing failed")
+                        audio, audio_lengths = None, None
                 else:
                     audio, audio_lengths = None, None
                 video_grid_thw_merged = copy.deepcopy(video_grid_thw)
@@ -663,6 +681,12 @@ class LazySupervisedDataset(Dataset):
             else:
                 data_dict["train_type"] = self.data_args.train_type
             
+            if "video" in source:
+                data_dict["video_buffer"] = source["video"]
+                print(f"DEBUG: Added video_buffer to data_dict, type: {type(source['video'])}")
+            else:
+                print(f"DEBUG: 'video' not in source. Source keys: {list(source.keys())}")
+            
             if self.data_args.run_test:
                 labels = data_dict.pop("labels", None)
                 len_input = sum(labels[0] == IGNORE_INDEX)
@@ -688,9 +712,8 @@ class LazySupervisedDataset(Dataset):
 
             return data_dict
         except Exception as e:
+            import IPython; IPython.embed()
             print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
-            raise e
-
 
 
 def pad_and_cat(tensor_list):
@@ -830,6 +853,7 @@ class DataCollatorForSupervisedDataset(object):
         batch["video_grid_thw"] = video_grid_thw
         batch["audio_feature"] = concat_audios
         batch["audio_lengths"] = audio_lengths
+        batch["video_buffer"] = [instance.get("video_buffer") for instance in instances]
         return batch
 
 

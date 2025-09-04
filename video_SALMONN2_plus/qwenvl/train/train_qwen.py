@@ -19,37 +19,30 @@ import logging
 import pathlib
 import torch
 import transformers
-import json
-from typing import Dict
-import shutil
 import sys
 from pathlib import Path
 import numpy as np
 import torch
 import random
-import time
 
-from torch.utils.data import DataLoader
+from txt2img.common import logger
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from qwenvl.model.modeling_qwen2_5_vl import video_SALMONN2_plus
-from qwenvl.data.dataset import make_supervised_data_module
-from qwenvl.data.image_processing_qwen2_vl_fast import Qwen2VLImageProcessorFast
 from qwenvl.train.argument import (
     ModelArguments,
     DataArguments,
     TrainingArguments,
 )
-from transformers import AutoTokenizer, WhisperFeatureExtractor
+
 from qwenvl.train.trainer import QwenVLTrainer
 
 from liger_kernel.transformers.qwen2vl_mrope import liger_multimodal_rotary_pos_emb
 from liger_kernel.transformers.rms_norm import LigerRMSNorm
 from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 
-from tqdm import tqdm
 import torch.distributed as dist
 
 local_rank = None
@@ -157,20 +150,27 @@ def set_model(model_args, model):
         model.lm_head.requires_grad_(False)
 
 
-def train(attn_implementation="flash_attention_2"):
-    global local_rank
-
-    seed = 2025
+def set_seeds(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    logger.debug("Random seeds set")
+
+def train(attn_implementation="flash_attention_2"):
+    global local_rank
+
+    set_seeds(seed=2025)
 
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments)
     )
+
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    logger.debug(f"Arguments parsed successfully - use_iterator: {data_args.use_iterator}")
+    logger.debug(f"Model name or path: {model_args.model_name_or_path}")
+    logger.debug(f"Resume from checkpoint: {training_args.resume_from_checkpoint}")
 
     assert data_args.train_type in ["sft", "dpo", "gdpo", "grpo"], f"train_type {data_args.train_type} is not supported"
 
@@ -181,32 +181,7 @@ def train(attn_implementation="flash_attention_2"):
     local_rank = training_args.local_rank
     os.makedirs(training_args.output_dir, exist_ok=True)
 
-    data_args.image_processor = Qwen2VLImageProcessorFast.from_pretrained(
-        model_args.model_base,
-    )
-    data_args.audio_processor = WhisperFeatureExtractor(
-        feature_size=data_args.feature_size, 
-        sampling_rate=data_args.sampling_rate,
-        hop_length=data_args.hop_length,
-        chunk_length=data_args.chunk_length,
-    )
-    data_args.model_type = "qwen2.5vl"
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_args.model_base,
-        cache_dir=training_args.cache_dir,
-        model_max_length=training_args.model_max_length,
-        padding_side="right",
-        use_fast=False,
-    )
-    
-
     if not data_args.run_test:
-        data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
-        # time.sleep(random.randint(0, 20))
-        # print(f"RANK {dist.get_rank()} before barrier")
-        dist.barrier(device_ids=dist.get_rank())
-        # print(f"RANK {dist.get_rank()} after barrier")
         model = video_SALMONN2_plus.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
@@ -223,20 +198,21 @@ def train(attn_implementation="flash_attention_2"):
                     output.requires_grad_(True)
 
                 model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-            if "3" not in training_args.deepspeed:
+            if not training_args.deepspeed or "3" not in training_args.deepspeed:
                 if training_args.gradient_checkpointing_kwargs is None:
                     training_args.gradient_checkpointing_kwargs={"use_reentrant": False}
                 else:
                     training_args.gradient_checkpointing_kwargs["use_reentrant"] = False
 
         if model_args.lora_ckpt != "No":
+            logger.debug(f"Loading LoRA checkpoint from {model_args.lora_ckpt}")
             from peft import PeftModel
             audio_layers = model.audio.layers
             del model.audio.layers
             model = PeftModel.from_pretrained(model, model_args.lora_ckpt)
             model.model.audio.layers = audio_layers
             model = model.merge_and_unload()
-            model.save_pretrained(os.path.join(training_args.output_dir, "base/"))
+            model.save_pretrained(data_args.temp_model_dir)
 
         set_model(model_args, model)
 
@@ -276,14 +252,17 @@ def train(attn_implementation="flash_attention_2"):
                 if "lora" in k:
                     v.requires_grad_(True)
         
+        print("Displaying parameters requiring gradients")
         if dist.get_rank() == 0:
             for k, v in model.named_parameters():
                 if v.requires_grad:
                     print(k, v.shape)
             # print(model.model.visual.merger)
 
+        salmon_processor = SalmonnProcessor()
+
         trainer = QwenVLTrainer(
-            model=model, processing_class=tokenizer, args=training_args, **data_module
+            model=model, processing_class=salmon_processor, args=training_args, 
         )
         
         if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
@@ -292,130 +271,130 @@ def train(attn_implementation="flash_attention_2"):
         else:
             trainer.train()
         trainer.save_state()
-        data_args.image_processor.save_pretrained(training_args.output_dir)
-
+        salmon_processor.image_processor.save_pretrained(training_args.output_dir)
         model.config.use_cache = True
 
         safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
     else:
-        pred_rank = training_args.pred_rank
-        if torch.cuda.device_count() > 1:
-            pred_rank = pred_rank * torch.cuda.device_count() + torch.cuda.current_device()
-            data_args.dataset_use = f"dataset/{pred_rank}.json"
-        data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+        raise NotImplementedError("Inference not implemented yet for model")
+        # pred_rank = training_args.pred_rank
+        # if torch.cuda.device_count() > 1:
+        #     pred_rank = pred_rank * torch.cuda.device_count() + torch.cuda.current_device()
+        #     data_args.dataset_use = f"dataset/{pred_rank}.json"
+        # data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
 
-        os.makedirs(os.path.join(training_args.output_dir, training_args.run_name), exist_ok=True)
+        # os.makedirs(os.path.join(training_args.output_dir, training_args.run_name), exist_ok=True)
 
-        if model_args.lora_ckpt != "No":
-            if dist.get_rank() == 0:
-                model = video_SALMONN2_plus.from_pretrained(
-                    model_args.model_name_or_path,
-                    attn_implementation=attn_implementation,
-                    torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
-                    device_map="cpu"
-                )
-                from peft import PeftModel
-                if not training_args.no_audio:
-                    audio_layers = model.audio.layers
-                    del model.audio.layers
-                model = PeftModel.from_pretrained(model, model_args.lora_ckpt)
-                if not training_args.no_audio:
-                    model.model.audio.layers = audio_layers
-                model = model.merge_and_unload()
+        # if model_args.lora_ckpt != "No":
+        #     if dist.get_rank() == 0:
+        #         model = video_SALMONN2_plus.from_pretrained(
+        #             model_args.model_name_or_path,
+        #             attn_implementation=attn_implementation,
+        #             torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
+        #             device_map="cpu"
+        #         )
+        #         from peft import PeftModel
+        #         if not training_args.no_audio:
+        #             audio_layers = model.audio.layers
+        #             del model.audio.layers
+        #         model = PeftModel.from_pretrained(model, model_args.lora_ckpt)
+        #         if not training_args.no_audio:
+        #             model.model.audio.layers = audio_layers
+        #         model = model.merge_and_unload()
 
-                if torch.cuda.device_count() > 1:
-                    model.save_pretrained(os.path.join(training_args.output_dir, "generation"))
-                else:
-                    model.save_pretrained(os.path.join(training_args.output_dir, f"generation_{pred_rank}"))
-            dist.barrier(device_ids=local_rank)
+        #         if torch.cuda.device_count() > 1:
+        #             model.save_pretrained(os.path.join(training_args.output_dir, "generation"))
+        #         else:
+        #             model.save_pretrained(os.path.join(training_args.output_dir, f"generation_{pred_rank}"))
+        #     dist.barrier(device_ids=local_rank)
             
 
-        if torch.cuda.device_count() > 1:
-            ds_config = {
-                "fp16": {"enabled": False},
-                "bf16": {"enabled": True},
-                "zero_optimization": {
-                    "stage": 3
-                },
-                "train_micro_batch_size_per_gpu": 1,
-            }
-            from transformers.integrations.deepspeed import HfDeepSpeedConfig
-            hfdsc = HfDeepSpeedConfig(ds_config)
+        # if torch.cuda.device_count() > 1:
+        #     ds_config = {
+        #         "fp16": {"enabled": False},
+        #         "bf16": {"enabled": True},
+        #         "zero_optimization": {
+        #             "stage": 3
+        #         },
+        #         "train_micro_batch_size_per_gpu": 1,
+        #     }
+        #     from transformers.integrations.deepspeed import HfDeepSpeedConfig
+        #     hfdsc = HfDeepSpeedConfig(ds_config)
 
-        if model_args.lora_ckpt == "No":
-            model = video_SALMONN2_plus.from_pretrained(
-                model_args.model_name_or_path,
-                attn_implementation=attn_implementation,
-                torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
-            )
-        else:
-            if torch.cuda.device_count() > 1:
-                model = video_SALMONN2_plus.from_pretrained(
-                    os.path.join(training_args.output_dir, "generation"),
-                    attn_implementation=attn_implementation,
-                    torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
-                )
-            else:
-                model = video_SALMONN2_plus.from_pretrained(
-                    os.path.join(training_args.output_dir, f"generation_{pred_rank}"),
-                    attn_implementation=attn_implementation,
-                    torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
-                )
-        if training_args.no_audio:
-            del model.audio
+        # if model_args.lora_ckpt == "No":
+        #     model = video_SALMONN2_plus.from_pretrained(
+        #         model_args.model_name_or_path,
+        #         attn_implementation=attn_implementation,
+        #         torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
+        #     )
+        # else:
+        #     if torch.cuda.device_count() > 1:
+        #         model = video_SALMONN2_plus.from_pretrained(
+        #             os.path.join(training_args.output_dir, "generation"),
+        #             attn_implementation=attn_implementation,
+        #             torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
+        #         )
+        #     else:
+        #         model = video_SALMONN2_plus.from_pretrained(
+        #             os.path.join(training_args.output_dir, f"generation_{pred_rank}"),
+        #             attn_implementation=attn_implementation,
+        #             torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
+        #         )
+        # if training_args.no_audio:
+        #     del model.audio
 
         
-        if torch.cuda.device_count() > 1:
-            import deepspeed
-            ds_engine = deepspeed.initialize(model=model, config_params=ds_config)[0]
-            ds_engine.module.eval()
-            model = ds_engine.module
-        else:
-            model.cuda()
+        # if torch.cuda.device_count() > 1:
+        #     import deepspeed
+        #     ds_engine = deepspeed.initialize(model=model, config_params=ds_config)[0]
+        #     ds_engine.module.eval()
+        #     model = ds_engine.module
+        # else:
+        #     model.cuda()
 
-        result = []
-        test_data = data_module["train_dataset"]
-        loader = DataLoader(
-            test_data,
-            batch_size=1,
-            shuffle=False,
-            num_workers=training_args.dataloader_num_workers,
-            collate_fn=collate_fn,
-            in_order=False
-        )
-        for inputs in tqdm(loader, desc=f"RANK {pred_rank}"):
-            if inputs:
-                res_i = {
-                    "video": inputs.pop("video", None),
-                    "image": inputs.pop("image", None),
-                    "prompt": inputs.pop("prompt", None),
-                    "ref": inputs.pop("ref", None),
-                    "audio": inputs.pop("audio", None),
-                    "use_audio": inputs.pop("use_audio", False),
-                    "should_use": inputs.pop("should_use", True),
-                }
-                inputs = {k: v.to(f"cuda:{torch.cuda.current_device()}") for k, v in inputs.items() if isinstance(v, torch.Tensor)}
-                for _ in range(data_args.num_sample):
-                    with torch.no_grad():
-                        outputs = model.generate(
-                            **inputs,
-                            max_new_tokens=1024,
-                            do_sample=data_args.do_sample,
-                            top_p=0.9)
-                    output_trimmed = outputs[0, len(inputs["input_ids"][0]):]
-                    output_text = tokenizer.decode(output_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
-                    if data_args.num_sample == 1:
-                        res_i["pred"] = output_text
-                    else:
-                        if "pred" in res_i:
-                            res_i["pred"].append(output_text)
-                        else:
-                            res_i["pred"] = [output_text]
-                if not res_i["should_use"]:
-                    continue
-                result.append(res_i)
-        with open(os.path.join(training_args.output_dir, training_args.run_name, f"test_results_rank{pred_rank}.json"), "w") as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
+        # result = []
+        # test_data = data_module["train_dataset"]
+        # loader = DataLoader(
+        #     test_data,
+        #     batch_size=1,
+        #     shuffle=False,
+        #     num_workers=training_args.dataloader_num_workers,
+        #     collate_fn=collate_fn,
+        #     in_order=False
+        # )
+        # for inputs in tqdm(loader, desc=f"RANK {pred_rank}"):
+        #     if inputs:
+        #         res_i = {
+        #             "video": inputs.pop("video", None),
+        #             "image": inputs.pop("image", None),
+        #             "prompt": inputs.pop("prompt", None),
+        #             "ref": inputs.pop("ref", None),
+        #             "audio": inputs.pop("audio", None),
+        #             "use_audio": inputs.pop("use_audio", False),
+        #             "should_use": inputs.pop("should_use", True),
+        #         }
+        #         inputs = {k: v.to(f"cuda:{torch.cuda.current_device()}") for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+        #         for _ in range(data_args.num_sample):
+        #             with torch.no_grad():
+        #                 outputs = model.generate(
+        #                     **inputs,
+        #                     max_new_tokens=1024,
+        #                     do_sample=data_args.do_sample,
+        #                     top_p=0.9)
+        #             output_trimmed = outputs[0, len(inputs["input_ids"][0]):]
+        #             output_text = tokenizer.decode(output_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+        #             if data_args.num_sample == 1:
+        #                 res_i["pred"] = output_text
+        #             else:
+        #                 if "pred" in res_i:
+        #                     res_i["pred"].append(output_text)
+        #                 else:
+        #                     res_i["pred"] = [output_text]
+        #         if not res_i["should_use"]:
+        #             continue
+        #         result.append(res_i)
+        # with open(os.path.join(training_args.output_dir, training_args.run_name, f"test_results_rank{pred_rank}.json"), "w") as f:
+        #     json.dump(result, f, indent=2, ensure_ascii=False)
         
         return
 

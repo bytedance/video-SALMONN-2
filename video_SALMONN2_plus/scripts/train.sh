@@ -1,14 +1,15 @@
 cd "$(cd $(dirname $0); pwd)/.."
+mkdir -p /dev/shm/txt2img_models
 
 DATASET=""
 USE_ITERATOR=True
-MODEL=Qwen2.5-VL-7B-Instruct
-MODEL_BASE=Qwen2.5-VL-7B-Instruct
+MODEL=/home/eporat/txt2img/txt2img/captioner/video-SALMONN-2/video_SALMONN2_plus/output/models/Qwen2.5-VL-7B-Instruct-Audio
+MODEL_BASE=Qwen/Qwen2.5-VL-7B-Instruct
 LR=2e-5
 BS=1
 ACCUM_STEPS=1
 RUN_NAME="train"
-DEEPSPEED=2
+DEEPSPEED=0
 TRAIN_LLM=False
 TRAIN_PROJ=False
 TRAIN_ENC=False
@@ -21,18 +22,37 @@ SAVE_STEPS=1000
 MIN_FRAMES=64
 MAX_FRAMES=128
 INTERVAL=0.2
-USE_LORA=False
+USE_LORA=True
 LORA_R=128
 LORA_ALPHA=256
 LORA_DROPOUT=0.05
-LORA_CKPT=No
+LORA_CKPT=tsinghua-ee/video-SALMONN-2_plus_7B
 TRAIN_TYPE=sft
-NUM_WORKER=8
+NUM_WORKER=0
 NO_AUDIO=False
 NUM_TRAIN_SAMPLES=10000
+TEMP_MODEL_DIR="/home/eporat/txt2img/txt2img/captioner/video-SALMONN-2/video_SALMONN2_plus/output/models/"
 
 mkdir -p output
 mkdir -p dataset
+
+# Set wandb environment variables
+export WANDB_API_KEY=a8ce9d9a7d252ccd3c58a35220ab899e076371f9
+export WANDB_ENTITY="lightricks"
+export WANDB_PROJECT="txt2img"
+
+# Set debug environment variables
+export DEBUG_LOG_INPUTS_OUTPUTS=1
+export DEBUG_LOG_FREQUENCY=50
+export DEBUG_MAX_NEW_TOKENS=128
+
+# Debug configuration
+echo "WANDB_API_KEY is: ${WANDB_API_KEY:+set (hidden)} ${WANDB_API_KEY:-not set}"
+echo "WANDB_ENTITY: $WANDB_ENTITY"
+echo "WANDB_PROJECT: $WANDB_PROJECT"
+echo "DEBUG_LOG_INPUTS_OUTPUTS: $DEBUG_LOG_INPUTS_OUTPUTS"
+echo "DEBUG_LOG_FREQUENCY: $DEBUG_LOG_FREQUENCY"
+echo "DEBUG_MAX_NEW_TOKENS: $DEBUG_MAX_NEW_TOKENS"
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -65,6 +85,7 @@ while [[ "$#" -gt 0 ]]; do
         --num_worker) NUM_WORKER="$2"; shift ;;
         --no_audio) NO_AUDIO=True ;;
         --num_train_samples) NUM_TRAIN_SAMPLES="$2"; shift ;;
+        --temp_model_dir) TEMP_MODEL_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -72,7 +93,6 @@ done
 
 python \
     qwenvl/train/train_qwen.py \
-        --deepspeed scripts/zero${DEEPSPEED}.json \
         --model_name_or_path "$MODEL" \
         --tune_mm_vision $TRAIN_ENC \
         --tune_mm_mlp $TRAIN_PROJ \
@@ -115,4 +135,5 @@ python \
         --tune_mm_qformer $TRAIN_QFORMER \
         --no_audio $NO_AUDIO \
         --use_iterator $USE_ITERATOR \
-        --num_train_samples $NUM_TRAIN_SAMPLES 
+        --num_train_samples $NUM_TRAIN_SAMPLES \
+        --temp_model_dir $TEMP_MODEL_DIR 

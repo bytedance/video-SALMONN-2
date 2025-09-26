@@ -58,13 +58,33 @@ def read_jsonl(path):
     with open(path, "r") as f:
         return [json.loads(line) for line in f]
 
-def split_into_groups(counts, groups):
+def split_into_groups(counts, groups, second_per_grid_ts=None):
     result = []
-    for count, g in zip(counts, groups):
-        base = count // g
-        remainder = count % g
-        group_list = [base + 1] * remainder + [base] * (g - remainder)
-        result.append(group_list)
+    if second_per_grid_ts is None:
+        for count, g in zip(counts, groups):
+            g = g.item()
+            base = count // g
+            remainder = count % g
+            if remainder == 0:
+                group_list = [base] * g
+            else:
+                group_list = [base] * g
+                step = g / remainder
+                for i in range(1, remainder + 1):
+                    position = i * step
+                    index = math.floor(position) - 1
+                    if index >= g:
+                        index = g - 1
+                    group_list[index] += 1
+            result.append(group_list)
+    else:
+        for count, g, second in zip(counts, groups, second_per_grid_ts):
+            g = g.item()
+            frame_idx = (torch.arange(g) * second * 2).long()
+            per_grid_t = torch.diff(frame_idx)
+            group_list = per_grid_t.tolist()
+            group_list.append(count - sum(group_list))
+            result.append(group_list)
     return result
 
 def generate_id_target(
@@ -75,6 +95,7 @@ def generate_id_target(
     tokenizer, 
     target_role,
     merge_size: int = 2,
+    second_per_grid_ts: List = []
 ):
     visual_replicate_index_image = 0
     visual_replicate_index_video = 0
@@ -135,7 +156,10 @@ def generate_id_target(
                 else:
                     for i in range(len(parts) - 1):
                         new_parts.append(parts[i])
-                        per_timestep_audio_len = split_into_groups(audio_lengths, [grid_thw_video[i][0] for i in range(len(grid_thw_video))])
+                        if second_per_grid_ts is None:
+                            per_timestep_audio_len = split_into_groups(audio_lengths, [grid_thw_video[i][0] for i in range(len(grid_thw_video))])
+                        else:
+                            per_timestep_audio_len = split_into_groups(audio_lengths, [grid_thw_video[i][0] for i in range(len(grid_thw_video))], [ts[0] for ts in second_per_grid_ts])
                         replacement = "<|vision_start|>"
                         for timestep in range(grid_thw_video[i][0]):
                             replacement += (
@@ -183,7 +207,10 @@ def preprocess_qwen_2_visual(
     grid_thw_video: List = [],
     audio_lengths = None,
     merge_size=2,
+    second_per_grid_ts: List = []
 ) -> Dict:
+    if second_per_grid_ts is not None and isinstance(second_per_grid_ts, list) and not isinstance(second_per_grid_ts[0], list):
+        second_per_grid_ts = [second_per_grid_ts]
     tokenizer = copy.deepcopy(tokenizer)
     chat_template = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
     tokenizer.chat_template = chat_template
@@ -209,14 +236,14 @@ def preprocess_qwen_2_visual(
                 is_dpo_data = True
                 break
         
-        input_id, target = generate_id_target(source, grid_thw_image, grid_thw_video, audio_lengths, tokenizer, "gpt", merge_size)
+        input_id, target = generate_id_target(source, grid_thw_image, grid_thw_video, audio_lengths, tokenizer, "gpt", merge_size, second_per_grid_ts)
         assert len(input_id) == len(target), f"{len(input_id)} != {len(target)}"
         input_ids.append(input_id)
         targets.append(target)
 
         if is_dpo_data:
-            chosen_id, chosen_target = generate_id_target(source, grid_thw_image, grid_thw_video, audio_lengths, tokenizer, "chosen", merge_size)
-            reject_id, reject_target = generate_id_target(source, grid_thw_image, grid_thw_video, audio_lengths, tokenizer, "reject", merge_size)
+            chosen_id, chosen_target = generate_id_target(source, grid_thw_image, grid_thw_video, audio_lengths, tokenizer, "chosen", merge_size, second_per_grid_ts)
+            reject_id, reject_target = generate_id_target(source, grid_thw_image, grid_thw_video, audio_lengths, tokenizer, "reject", merge_size, second_per_grid_ts)
 
             assert len(chosen_id) == len(chosen_target), f"{len(chosen_id)}!= {len(chosen_target)}"
             assert len(reject_id) == len(reject_target), f"{len(reject_id)}!= {len(reject_target)}"
@@ -570,6 +597,7 @@ class LazySupervisedDataset(Dataset):
                 grid_thw_video=video_grid_thw_merged if video_grid_thw_merged else None,
                 audio_lengths=audio_lengths if audio_lengths else None,
                 merge_size=self.data_args.image_processor.merge_size,
+                second_per_grid_ts=second_per_grid_ts if second_per_grid_ts else None,
             )
             position_ids, _ = self.get_rope_index(
                 self.data_args.image_processor.merge_size,

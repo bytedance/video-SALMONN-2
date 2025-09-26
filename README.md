@@ -1,4 +1,4 @@
-# video-SALMONN 2: Captioning-Enhanced Audio-Visual Large Language Models
+# video-SALMONN 2: Caption-Enhanced Audio-Visual Large Language Models
 
 🚀🚀 Welcome to the repo of **video-SALMONN 2**!
 

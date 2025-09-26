@@ -8,6 +8,7 @@ video-SALMONN 2 is a powerful audio-visual large language model (LLM) that **gen
 <a href='https://arxiv.org/abs/2506.15220'><img src='https://img.shields.io/badge/video_SALMONN_2_paper-PDF-green'></a>
 <a href='https://video-salmonn-2.github.io'><img src='https://img.shields.io/badge/Demo-link-green'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2'><img src='https://img.shields.io/badge/video_SALMONN_2_7B-checkpoint-yellow'></a>
+<a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_3B'><img src='https://img.shields.io/badge/video_SALMONN_2+_3B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_7B'><img src='https://img.shields.io/badge/video_SALMONN_2+_7B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_72B'><img src='https://img.shields.io/badge/video_SALMONN_2+_72B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/datasets/tsinghua-ee/video-SALMONN_2_testset'><img src='https://img.shields.io/badge/video_SALMONN_2-testset-yellow'></a>
@@ -15,6 +16,7 @@ video-SALMONN 2 is a powerful audio-visual large language model (LLM) that **gen
 
 ## 🔥 News
 
+- **2025-09-26**: A new version (2509) of video-SALMONN 2+ is released, containing minor [code](https://github.com/bytedance/video-SALMONN-2/tree/main/video_SALMONN2_plus) revision, an update for [7B model](https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_7B) and [72B model](https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_72B), as well as the addition of [3B model](https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_3B). The upgraded video-SALMONN 2+ further enhances audio-visual and visual-only understanding capability on various benchmarks. 
 - **2025-07-17**: We release the code and checkpoint of video-SALMONN 2+ at [video-SALMONN 2+](https://github.com/bytedance/video-SALMONN-2/tree/main/video_SALMONN2_plus). video-SALMONN 2+ achieves SOTA results on [Video-MME](https://video-mme.github.io/home_page.html) benchmark.
 - **2025-07-08**: We release the 7B version of video-SALMONN 2.
 - **2025-06-18**: We release the code of video-SALMONN 2.

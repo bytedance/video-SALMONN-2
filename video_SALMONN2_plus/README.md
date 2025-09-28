@@ -4,6 +4,7 @@ video-SALMONN 2+ is built on Qwen 2.5-VL using a similar pipeline of video-SALMO
 
 <div style='display:flex; gap: 0.25rem; '>
 <a href='https://arxiv.org/abs/2506.15220'><img src='https://img.shields.io/badge/paper-PDF-green'></a>
+<a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_3B'><img src='https://img.shields.io/badge/video_SALMONN_2+_3B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_7B'><img src='https://img.shields.io/badge/video_SALMONN_2+_7B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_72B'><img src='https://img.shields.io/badge/video_SALMONN_2+_72B-checkpoint-yellow'></a>
 </div>

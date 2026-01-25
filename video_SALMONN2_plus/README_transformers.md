@@ -78,14 +78,17 @@ You may use `<image>`, `<video>`, `<audio>` placeholders in the prompt. The proc
 `<|vision_start|><|*_pad|>...<|vision_end|>` sequences based on the actual input sizes.
 
 If you already use `<|image_pad|>`, `<|video_pad|>`, or `<|audio_pad|>`, you can place a **single** token
-per input; the processor will expand it to the correct length.
+per input; the processor will expand it to the correct length. A `<audio>` or `<|audio_pad|>` placeholder
+is treated as an **explicit audio block**, so audio will not be interleaved into video tokens in that case.
+For video+audio interleaving, use `<video>` only and provide the audio waveform separately.
 
 ## Audio Notes
 
 - Pass raw waveform arrays (not file paths).
+- Channel-first `(channels, samples)` and channel-last `(samples, channels)` arrays are supported and downmixed to mono.
 - Default sampling rate: **16 kHz**.
 - Audio is chunked into 30-second windows; each window corresponds to 60 audio tokens.
-- For video + audio, the processor interleaves audio tokens per video timestep.
+- For video + audio, the processor interleaves audio tokens per video timestep **only if no explicit `<audio>` or `<|audio_pad|>` placeholder is present**.
 
 ## Files Added/Updated
 

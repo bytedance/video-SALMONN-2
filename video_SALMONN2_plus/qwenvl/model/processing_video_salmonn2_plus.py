@@ -137,7 +137,17 @@ class VideoSALMONN2PlusProcessor(ProcessorMixin):
                 )
             audio_array = np.array(audio_item, dtype=np.float32)
             if audio_array.ndim > 1:
-                audio_array = np.mean(audio_array, axis=0)
+                # Downmix multi-channel audio without collapsing the time axis.
+                if audio_array.shape[0] == 1:
+                    audio_array = audio_array.squeeze(0)
+                elif audio_array.shape[-1] == 1:
+                    audio_array = audio_array.squeeze(-1)
+                elif audio_array.shape[0] <= 8 and audio_array.shape[1] > audio_array.shape[0]:
+                    audio_array = np.mean(audio_array, axis=0)
+                elif audio_array.shape[-1] <= 8 and audio_array.shape[0] > audio_array.shape[-1]:
+                    audio_array = np.mean(audio_array, axis=-1)
+                else:
+                    audio_array = np.mean(audio_array, axis=-1)
             if audio_array.shape[0] < segment_samples:
                 pad = segment_samples - audio_array.shape[0]
                 audio_array = np.pad(audio_array, (0, pad), mode="constant", constant_values=0)
@@ -341,7 +351,10 @@ class VideoSALMONN2PlusProcessor(ProcessorMixin):
 
             merge_size = getattr(self.image_processor, "merge_size", 2)
             text = self._expand_images(text, image_grid_thw, merge_size)
-            audio_for_video = audio_lengths is not None and videos is not None and all("<audio>" not in t for t in text)
+            has_audio_placeholder = any("<audio>" in t for t in text)
+            has_audio_token_placeholder = any(self.audio_token in t for t in text)
+            explicit_audio_placeholder = has_audio_placeholder or has_audio_token_placeholder
+            audio_for_video = audio_lengths is not None and videos is not None and not explicit_audio_placeholder
             if audio_for_video and video_grid_thw is not None and len(audio_lengths) != len(video_grid_thw):
                 raise ValueError("Number of audio inputs must match number of videos when audio is interleaved.")
 

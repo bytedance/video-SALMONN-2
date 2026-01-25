@@ -67,6 +67,8 @@ generated_ids = model.generate(**inputs, max_new_tokens=128)
 print(processor.batch_decode(generated_ids, skip_special_tokens=True)[0])
 ```
 
+Note: audio is interleaved into video tokens only when you use `<video>` without an explicit `<audio>`/`<|audio_pad|>` placeholder.
+
 If you want to use the Auto* classes without `trust_remote_code`, you can register locally:
 
 ```python

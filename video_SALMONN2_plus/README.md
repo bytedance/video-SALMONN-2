@@ -39,3 +39,39 @@ video-SALMONN 2+ is built on Qwen 2.5-VL using a similar pipeline of video-SALMO
    ```bash
    bash scripts/test_8.sh --interval 0.1 --run_name eval --dataset path_to_dataset --max_frames 768 --max_pixels 61250 --model path_to_audio_model --model_base path_to_audio_model --lora_ckpt model_ckpt
    ```
+
+## Transformers Auto* Usage
+
+The model now exposes standard Transformers entry points so you can load it with `AutoModelForCausalLM` and
+`AutoProcessor` (image/video/audio). Use `trust_remote_code=True` when loading from a repo that contains this code.
+
+```python
+from transformers import AutoModelForCausalLM, AutoProcessor
+
+model = AutoModelForCausalLM.from_pretrained(
+    "path_or_hub_repo",
+    trust_remote_code=True,
+    torch_dtype="auto",
+    device_map="auto",
+)
+processor = AutoProcessor.from_pretrained("path_or_hub_repo", trust_remote_code=True)
+
+inputs = processor(
+    text="Describe this video and its audio: <video>",
+    videos=video_frames,  # numpy/torch array or list of frames
+    audio=audio_waveform,  # raw waveform array
+    return_tensors="pt",
+)
+
+generated_ids = model.generate(**inputs, max_new_tokens=128)
+print(processor.batch_decode(generated_ids, skip_special_tokens=True)[0])
+```
+
+Note: audio is interleaved into video tokens only when you use `<video>` without an explicit `<audio>`/`<|audio_pad|>` placeholder.
+
+If you want to use the Auto* classes without `trust_remote_code`, you can register locally:
+
+```python
+from qwenvl.model import register_transformers
+register_transformers()
+```

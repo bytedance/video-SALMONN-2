@@ -9,6 +9,7 @@ video-SALMONN 2 is a powerful audio-visual large language model (LLM) that **gen
 <a href='https://video-salmonn-2.github.io'><img src='https://img.shields.io/badge/Demo-link-green'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2'><img src='https://img.shields.io/badge/video_SALMONN_2_7B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_3B'><img src='https://img.shields.io/badge/video_SALMONN_2+_3B-checkpoint-yellow'></a>
+<a href='https://huggingface.co/tsinghua-ee/video_SALMONN2plus_3B_audioAlign'><img src='https://img.shields.io/badge/video_SALMONN_2+_3B-audioAlign-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_7B'><img src='https://img.shields.io/badge/video_SALMONN_2+_7B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video_SALMONN2plus_7B_audioAlign'><img src='https://img.shields.io/badge/video_SALMONN_2+_7B-audioAlign-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_72B'><img src='https://img.shields.io/badge/video_SALMONN_2+_72B-checkpoint-yellow'></a>
@@ -18,6 +19,7 @@ video-SALMONN 2 is a powerful audio-visual large language model (LLM) that **gen
 
 ## 🔥 News
 
+-  **2026-02-15**: We release audio-aligned video-SALMONN 2+ 3B checkpoint.
 -  **2026-01-28**: We release the audio-aligned model of video-SALMONN 2+ 72B for finetuning larger audio-visual models.
 -  **2025-12-18**: We have released the audio-aligned model of video-SALMONN 2+ 7B for further finetuning. 
 -  **2025-09-26**: A new version (Version-2509) of video-SALMONN 2+ is released, containing minor [code](https://github.com/bytedance/video-SALMONN-2/tree/main/video_SALMONN2_plus) revision, an update for [7B model](https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_7B) and [72B model](https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_72B), as well as the addition of [3B model](https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_3B). The upgraded video-SALMONN 2+ further enhances audio-visual and visual-only understanding capability on various benchmarks. 

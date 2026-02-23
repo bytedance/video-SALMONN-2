@@ -301,6 +301,8 @@ class LazySupervisedDataset(Dataset):
         list_data_dict = []
 
         for data in dataset_list:
+            if data == "":
+                continue
             file_format = data.split(".")[-1]
             if file_format == "jsonl":
                 annotations = read_jsonl(data)
@@ -495,7 +497,8 @@ class LazySupervisedDataset(Dataset):
         # try the current sample first
         for attempt_idx in range(num_base_retries):
             try:
-                sample = self._get_item(i)
+                sources = self.list_data_dict[i]
+                sample = self._get_item(sources)
                 return sample
             except Exception as e:
                 # sleep 1s in case it is a cloud disk issue
@@ -510,10 +513,9 @@ class LazySupervisedDataset(Dataset):
             print(f"Failed to fetch sample {i}. Try another sample.")
             return self.__getitem__(random.randint(0, len(self) - 1))
 
-    def _get_item(self, i) -> Dict[str, torch.Tensor]:
+    def _get_item(self, sources) -> Dict[str, torch.Tensor]:
         try:
-            sources = self.list_data_dict[i]
-            if isinstance(i, int):
+            if not isinstance(sources, list):
                 sources = [sources]
             assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
 
@@ -527,7 +529,7 @@ class LazySupervisedDataset(Dataset):
             audio_lengths = None
 
             if "image" in sources[0]:
-                image_file = self.list_data_dict[i]["image"]
+                image_file = sources[0]["image"]
                 if isinstance(image_file, List):
                     if len(image_file) > 1:
                         image_file = [
@@ -661,13 +663,13 @@ class LazySupervisedDataset(Dataset):
                     data_dict["reject_ids"][0].size(0)
                 ]
 
-            if "image" in self.list_data_dict[i]:
+            if "image" in sources[0]:
                 data_dict["pixel_values"] = torch.cat(image, dim=0)
                 data_dict["image_grid_thw"] = torch.cat(
                     [thw.unsqueeze(0) for thw in grid_thw], dim=0
                 )
             # video exist in the data
-            elif "video" in self.list_data_dict[i]:
+            elif "video" in sources[0]:
                 data_dict["pixel_values_videos"] = torch.cat(video, dim=0)
                 data_dict["video_grid_thw"] = torch.cat(
                     [thw.unsqueeze(0) for thw in video_grid_thw], dim=0

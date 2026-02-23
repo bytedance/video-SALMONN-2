@@ -8,9 +8,9 @@ video-SALMONN 2 is a powerful audio-visual large language model (LLM) that **gen
 <a href='https://arxiv.org/abs/2506.15220'><img src='https://img.shields.io/badge/video_SALMONN_2_paper-PDF-green'></a>
 <a href='https://video-salmonn-2.github.io'><img src='https://img.shields.io/badge/Demo-link-green'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2'><img src='https://img.shields.io/badge/video_SALMONN_2_7B-checkpoint-yellow'></a>
-<a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_3B'><img src='https://img.shields.io/badge/video_SALMONN_2+_3B-checkpoint-yellow'></a>
+<a href='https://huggingface.co/tsinghua-ee/video-SALMONN2_plus_3B_full'><img src='https://img.shields.io/badge/video_SALMONN_2+_3B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video_SALMONN2plus_3B_audioAlign'><img src='https://img.shields.io/badge/video_SALMONN_2+_3B-audioAlign-yellow'></a>
-<a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_7B'><img src='https://img.shields.io/badge/video_SALMONN_2+_7B-checkpoint-yellow'></a>
+<a href='https://huggingface.co/tsinghua-ee/video-SALMONN2_plus_7B_full'><img src='https://img.shields.io/badge/video_SALMONN_2+_7B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video_SALMONN2plus_7B_audioAlign'><img src='https://img.shields.io/badge/video_SALMONN_2+_7B-audioAlign-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video-SALMONN-2_plus_72B'><img src='https://img.shields.io/badge/video_SALMONN_2+_72B-checkpoint-yellow'></a>
 <a href='https://huggingface.co/tsinghua-ee/video_SALMONN2plus_72B_audioAlign'><img src='https://img.shields.io/badge/video_SALMONN_2+_72B-audioAlign-yellow'></a>
@@ -19,6 +19,7 @@ video-SALMONN 2 is a powerful audio-visual large language model (LLM) that **gen
 
 ## 🔥 News
 
+-  **2026-02-24**: We release the minimal inference code for video-SALMONN 2+ 3B and 7B.
 -  **2026-02-15**: We release audio-aligned video-SALMONN 2+ 3B checkpoint.
 -  **2026-01-28**: We release the audio-aligned model of video-SALMONN 2+ 72B for finetuning larger audio-visual models.
 -  **2025-12-18**: We have released the audio-aligned model of video-SALMONN 2+ 7B for further finetuning. 
@@ -35,6 +36,8 @@ We evaluate the models on audio-visual QA benchmarks including Video-MME, WorldS
 
 ## 🌈 How to Use
 
+### For video-SALMONN 2+, please refer to [video_SALMONN2_plus](https://github.com/bytedance/video-SALMONN-2/tree/main/video_SALMONN2_plus)
+
 ### How to train video-SALMONN 2
 
 1. Prepare the dataset following `scripts/example_sft.json` and `scripts/example_dpo.json`.
@@ -47,8 +50,6 @@ We evaluate the models on audio-visual QA benchmarks including Video-MME, WorldS
 1. Prepare the dataset following `scripts/example_sft.json`.
 2. Modify the parameters in `scripts/eval.sh`.
 3. Run `bash scripts/eval.sh`.
-
-### For video-SALMONN 2+, please refer to [video_SALMONN2_plus](https://github.com/bytedance/video-SALMONN-2/tree/main/video_SALMONN2_plus)
 
 ## 👀 Team
 

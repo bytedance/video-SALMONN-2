@@ -3,7 +3,7 @@
 video-SALMONN 2 Pro upgrades video-SALMONN 2 to the Qwen3-VL backbone while
 retaining its audio-visual alignment and instruction-tuning pipeline. The
 project supports joint video and audio understanding, detailed video
-captioning, and audio-visual question answering.
+captioning, and audio-visual question answering. We also support vLLM, which significantly improves caption generation throughput and latency.
 
 Three model sizes are provided: 4B, 8B, and 32B.
 

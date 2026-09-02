@@ -1,0 +1,5 @@
+vllm==0.17.1
+decord
+joblib
+torchcodec==0.10
+deepspeed==0.18.8

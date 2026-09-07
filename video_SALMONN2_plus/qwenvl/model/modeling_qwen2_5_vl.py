@@ -2550,6 +2550,22 @@ class video_SALMONN2_plus(Qwen2_5_VLPreTrainedModel, GenerationMixin):
 
         return image_nums, video_nums
 
+    def _get_audio_nums(
+        self,
+        input_ids: Optional[torch.LongTensor],
+    ) -> torch.Tensor:
+        """
+        Get the number of audio segments for each sample based on vision start and audio tokens.
+        """
+        audio_token_id = self.config.audio_token_id
+        vision_start_token_id = self.config.vision_start_token_id
+
+        vision_start_mask = input_ids == vision_start_token_id
+        vision_first_mask = torch.roll(vision_start_mask, shifts=1, dims=1)
+        audio_mask = input_ids == audio_token_id
+        audio_nums = torch.sum(vision_first_mask & audio_mask, dim=1)
+        return audio_nums
+
     def _expand_inputs_for_generation(
         self,
         expand_size: int = 1,
@@ -2565,12 +2581,22 @@ class video_SALMONN2_plus(Qwen2_5_VLPreTrainedModel, GenerationMixin):
         if expand_size == 1:
             return input_ids, model_kwargs
 
-        visual_keys = ["pixel_values", "image_grid_thw", "pixel_values_videos", "video_grid_thw", "second_per_grid_ts"]
+        visual_keys = [
+            "pixel_values",
+            "image_grid_thw",
+            "pixel_values_videos",
+            "video_grid_thw",
+            "second_per_grid_ts",
+            "audio_feature",
+            "audio_lengths",
+        ]
 
         def _expand_dict_for_generation_visual(dict_to_expand):
             image_grid_thw = model_kwargs.get("image_grid_thw", None)
             video_grid_thw = model_kwargs.get("video_grid_thw", None)
+            audio_lengths = model_kwargs.get("audio_lengths", None)
             image_nums, video_nums = self._get_image_nums_and_video_nums(input_ids)
+            audio_nums = self._get_audio_nums(input_ids)
 
             def _repeat_interleave_samples(x, lengths, repeat_times):
                 samples = torch.split(x, lengths)
@@ -2613,6 +2639,36 @@ class video_SALMONN2_plus(Qwen2_5_VLPreTrainedModel, GenerationMixin):
                     lengths = list(video_nums)
                     tensor = _repeat_interleave_samples(tensor, lengths=lengths, repeat_times=expand_size)
                     dict_to_expand[key] = tensor.tolist()
+                elif key == "audio_lengths":
+                    if not isinstance(dict_to_expand[key], list):
+                        raise TypeError(
+                            f"Expected value for key '{key}' to be a list, but got {type(dict_to_expand[key])} instead."
+                        )
+                    if video_grid_thw is not None and len(dict_to_expand[key]) == int(video_nums.sum()):
+                        lengths = list(video_nums)
+                    else:
+                        lengths = list(audio_nums)
+                    tensor = torch.tensor(dict_to_expand[key])
+                    tensor = _repeat_interleave_samples(tensor, lengths=lengths, repeat_times=expand_size)
+                    dict_to_expand[key] = tensor.tolist()
+                elif key == "audio_feature":
+                    if audio_lengths is None:
+                        raise ValueError(
+                            "audio_feature provided without audio_lengths; cannot expand for generation."
+                        )
+                    if video_grid_thw is not None and len(audio_lengths) == int(video_nums.sum()):
+                        lengths = list(video_nums)
+                    else:
+                        lengths = list(audio_nums)
+                    segments_per_audio = [int(math.ceil(length / 60)) for length in audio_lengths]
+                    segments_per_sample = []
+                    cursor = 0
+                    for count in lengths:
+                        segments_per_sample.append(sum(segments_per_audio[cursor : cursor + count]))
+                        cursor += count
+                    dict_to_expand[key] = _repeat_interleave_samples(
+                        dict_to_expand[key], lengths=segments_per_sample, repeat_times=expand_size
+                    )
             return dict_to_expand
 
         def _expand_dict_for_generation(dict_to_expand):
@@ -2642,3 +2698,16 @@ class video_SALMONN2_plus(Qwen2_5_VLPreTrainedModel, GenerationMixin):
             model_kwargs["encoder_outputs"] = _expand_dict_for_generation(model_kwargs["encoder_outputs"])
 
         return input_ids, model_kwargs
+
+
+class VideoSALMONN2PlusForConditionalGeneration(video_SALMONN2_plus):
+    """Alias with a Transformers-conventional name."""
+
+
+__all__ = [
+    "Qwen2_5_VLModel",
+    "Qwen2_5_VLPreTrainedModel",
+    "Qwen2_5_VisionTransformerPretrainedModel",
+    "video_SALMONN2_plus",
+    "VideoSALMONN2PlusForConditionalGeneration",
+]

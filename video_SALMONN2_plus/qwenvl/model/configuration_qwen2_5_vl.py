@@ -377,6 +377,16 @@ class Qwen2_5_VLConfig(PretrainedConfig):
         audio_config=None,
         rope_scaling=None,
         audio_token_id=151665,
+        image_token_id=151655,
+        video_token_id=151656,
+        vision_start_token_id=151652,
+        vision_end_token_id=151653,
+        image_token="<|image_pad|>",
+        video_token="<|video_pad|>",
+        audio_token="<|audio_pad|>",
+        vision_start_token="<|vision_start|>",
+        vision_end_token="<|vision_end|>",
+        auto_map=None,
         **kwargs,
     ):
         if isinstance(vision_config, dict):
@@ -414,6 +424,15 @@ class Qwen2_5_VLConfig(PretrainedConfig):
         self.attention_dropout = attention_dropout
         self.rope_scaling = rope_scaling
         self.audio_token_id = audio_token_id
+        self.image_token_id = image_token_id
+        self.video_token_id = video_token_id
+        self.vision_start_token_id = vision_start_token_id
+        self.vision_end_token_id = vision_end_token_id
+        self.image_token = image_token
+        self.video_token = video_token
+        self.audio_token = audio_token
+        self.vision_start_token = vision_start_token
+        self.vision_end_token = vision_end_token
 
         # Validate the correctness of rotary position embeddings parameters
         # BC: if there is a 'type' field, move it to 'rope_type'.
@@ -428,5 +447,15 @@ class Qwen2_5_VLConfig(PretrainedConfig):
 
         super().__init__(tie_word_embeddings=tie_word_embeddings, **kwargs)
 
+        # Default auto_map for Transformers custom code loading.
+        if auto_map is None:
+            self.auto_map = {
+                "AutoConfig": "qwenvl.model.configuration_qwen2_5_vl.Qwen2_5_VLConfig",
+                "AutoModelForCausalLM": "qwenvl.model.modeling_qwen2_5_vl.VideoSALMONN2PlusForConditionalGeneration",
+                "AutoProcessor": "qwenvl.model.processing_video_salmonn2_plus.VideoSALMONN2PlusProcessor",
+            }
+        else:
+            self.auto_map = auto_map
 
-__all__ = ["Qwen2_5_VLConfig"]
+
+__all__ = ["Qwen2_5_VLConfig", "Qwen2_5_VLVisionConfig", "WhisperConfig", "BertConfig"]
